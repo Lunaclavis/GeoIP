@@ -1,0 +1,7 @@
+.DS_Store
+Thumbs.db
+desktop.ini
+*.sha3-512
+.idea/
+vendor/
+dist/

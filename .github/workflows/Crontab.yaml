@@ -1,0 +1,76 @@
+name: Update GeoIP2 Database
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 */3 * *'
+
+jobs:
+  build:
+    name: Update GeoIP2 Database
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go 1.x
+        uses: actions/setup-go@v6
+        with:
+          go-version: '^1.16'
+
+      - name: Get dependencies
+        run: |
+          go get -v -t -d ./...
+          if [ -f Gopkg.toml ]; then
+              curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+              dep ensure
+          fi
+
+      - name: Compile GeoIP conversion bin (Golang)
+        run: |
+          mkdir -p dist
+          ./build.sh
+
+      - name: Download IP lists
+        run: |
+          wget -qO- "https://chnroutes2.cdn.skk.moe/chnroutes.txt" | grep -v '#' > dist/Mainland-IPv4.txt
+          wget -qO- "https://gaoyifan.github.io/china-operator-ip/china6.txt" | grep -v '#' > dist/Mainland-IPv6.txt
+          cat dist/Mainland-IPv4.txt dist/Mainland-IPv6.txt > dist/Mainland.txt
+
+      - name: Generate GeoIP2 Database
+        run: |
+          cd dist
+          ./ip2mmdb -s ./Mainland.txt -d Country.mmdb
+          cd ..
+
+      - name: Push to GitHub
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+
+          git switch -d origin/release
+          git switch --orphan latest
+
+          mv -f dist/Mainland.txt .
+          mv -f dist/Mainland-IPv4.txt .
+          mv -f dist/Mainland-IPv6.txt .
+          mv -f dist/Country.mmdb .
+
+          git add Mainland.txt
+          git add Mainland-IPv4.txt
+          git add Mainland-IPv6.txt
+          git add Country.mmdb
+
+          git commit -m "Updated at $(date)"
+
+          git push origin +latest:release
+
+          git switch -d origin/release
+          git branch -D latest
