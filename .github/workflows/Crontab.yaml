@@ -1,0 +1,66 @@
+name: Update GeoIP2 Database
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/**'
+      - 'tools/**'
+      - 'scripts/**'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 */3 * *'
+
+jobs:
+  build:
+    name: Update GeoIP2 Database
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Setup environment
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download IP lists
+        run: |
+          mkdir -p dist
+          curl -sSfL --retry 3 "https://chnroutes2.cdn.skk.moe/chnroutes.txt" | sed -E '/^\s*(#|$)/d' > dist/Mainland-IPv4.txt
+          curl -sSfL --retry 3 "https://gaoyifan.github.io/china-operator-ip/china6.txt" | sed -E '/^\s*(#|$)/d' > dist/Mainland-IPv6.txt
+
+      - name: Build Database
+        run: |
+          cd dist
+          bash ../scripts/init.sh
+          bash ../scripts/build.sh
+          bash ../scripts/test.sh
+          cd ..
+
+      - name: Push to GitHub
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+
+          git switch --orphan latest
+
+          mv -f dist/Mainland*.txt .
+          mv -f dist/Mainland*.set .
+          mv -f dist/Country.mmdb .
+
+          git add Mainland*.txt
+          git add Mainland*.set
+          git add Country.mmdb
+
+          git commit -m "Updated at $(date)"
+
+          git push origin +latest:release
+
+          git switch -d origin/release
+          git branch -D latest
